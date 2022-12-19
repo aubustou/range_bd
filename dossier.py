@@ -37,8 +37,6 @@ def recurse(top_path: Path):
 
     for folder in folders:
         recurse(folder)
-    folders = {}
-    img_folders = {}
 
 
 def main():
