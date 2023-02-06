@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "range-bd"
+version = "0.0.1"
+description = "Range tes BD"
+requires-python = ">=3.11"
+dependencies = [
+		"send2trash",
+		"selenium",
+		"beautifulsoup4",
+		"opencv-python",
+        "numpy",
+        "rotate-screen",
+        "pyautogui",
+]
+
+[tool.setuptools]
+packages = ["range_bd"]
+
+[project.scripts]
+pdf_to_cbz = "pdf_to_cbz.main:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+		"pdbpp",
+		"black",
+		"isort",
+		"mypy",
+]

@@ -24,6 +24,7 @@ def main():
                     print(f"{book} is not a RAR archive")
                     continue
                 else:
+                    print(e.stdout)
                     raise
             else:
                 with ZipFile(cbz_book, "w") as zip_:
