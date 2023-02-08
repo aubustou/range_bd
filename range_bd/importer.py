@@ -2,6 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import platform
 
+import json
 import time
 from pathlib import Path
 from typing import Literal
@@ -20,6 +21,7 @@ import numpy as np
 from selenium.webdriver.common.action_chains import ActionChains
 import rotatescreen
 
+LOGIN_URL = "https://www.izneo.com/fr/login"
 URLS = [
     # "https://www.izneo.com/fr/bd/seinen/insomniaques-43556/insomniaques-t01-94528/read/1",
     "https://www.izneo.com/fr/comics/science-fiction/universal-war-two-24959/universal-war-two-tome-3-l-exode-15477/read/1",
@@ -31,6 +33,11 @@ TMP_FOLDER.mkdir(exist_ok=True)
 
 
 
+def login(driver: Chrome, username: str, password: str):
+    driver.get(LOGIN_URL)
+    driver.find_element(By.ID, "form_username").send_keys(username)
+    driver.find_element(By.ID, "form_password").send_keys(password)
+    driver.find_element(By.ID, "btnLogin").click()
 
 
 def get_details_from_url(url: str) -> tuple[str, str, str, str, str, str]:
@@ -43,7 +50,7 @@ def get_details_from_url(url: str) -> tuple[str, str, str, str, str, str]:
 
     return type, category, series, series_id, tome, tome_id
 
-def download(url: str) -> Path:
+def download(driver: Chrome, url: str, username: str, password: str) -> Path:
     type, category, series, series_id, tome, tome_id = get_details_from_url(url)
 
     if category in {"seinen", "shonen", "shojo", "manga"}:
@@ -54,39 +61,32 @@ def download(url: str) -> Path:
     path = Path(f"{series} - {series_id}/{tome} - {tome_id}")
     path.mkdir(parents=True, exist_ok=True)
         
+    actions = ActionChains(driver)
 
-    chrome_options = Options()
-    chrome_options.add_argument("--window-size=4000,4000")
-    driver = Chrome(chrome_options=chrome_options)
+    driver.get(url)
+    # driver.fullscreen_window()
 
+    # Wait for div iz_OpenSliderLast to appears
+    wait = WebDriverWait(driver, 20)
+    wait.until(EC.presence_of_element_located((By.ID, "iz_OpenSliderLast")))
 
-    with driver:
-        actions = ActionChains(driver)
+    # Catch value of iz_OpenSliderLast
+    soup = BeautifulSoup(driver.page_source, "html.parser")
+    last_page = soup.find(id="iz_OpenSliderLast").text
+    print(f"Last page: {last_page}")
+    number_length = len(last_page)
 
-        driver.get(url)
-        # driver.fullscreen_window()
+    # Wait for footer/header to disappear
+    time.sleep(5)
 
-        # Wait for div iz_OpenSliderLast to appears
-        wait = WebDriverWait(driver, 20)
-        wait.until(EC.presence_of_element_located((By.ID, "iz_OpenSliderLast")))
+    for index in range(int(last_page)):
+    # for index in range(10):
+        time.sleep(2)
+        driver.save_screenshot(f"{series} - {series_id}/{tome} - {tome_id}/{series} #{tome} - {str(index).zfill(number_length)}.png")
 
-        # Catch value of iz_OpenSliderLast
-        soup = BeautifulSoup(driver.page_source, "html.parser")
-        last_page = soup.find(id="iz_OpenSliderLast").text
-        print(f"Last page: {last_page}")
-        number_length = len(last_page)
-
-        # Wait for footer/header to disappear
-        time.sleep(5)
-
-        for index in range(int(last_page)):
-        # for index in range(10):
-            time.sleep(2)
-            driver.save_screenshot(f"{series} - {series_id}/{tome} - {tome_id}/{series} #{tome} - {str(index).zfill(number_length)}.png")
-
-            # press LEFT arrow
-            actions.send_keys(arrow)
-            actions.perform()
+        # press LEFT arrow
+        actions.send_keys(arrow)
+        actions.perform()
 
     # move_images(path, BEDE_FOLDER)
 
@@ -147,28 +147,41 @@ class ScreenRotation:
         if self.operating_system == "Windows":
             import rotatescreen
             self.screen = rotatescreen.get_primary_display()
-        elif self.operating_system == "Linux":
-            import pyautogui
-            self.screen = pyautogui
+        # elif self.operating_system == "Linux":
+        #     import pyautogui
+        #     self.screen = pyautogui
 
     def __enter__(self) -> None:
         if self.operating_system == "Windows":
             self.screen.set_portrait()
-        elif self.operating_system == "Linux":
-            self.screen.hotkey("ctrl", "alt", "r")
+        # elif self.operating_system == "Linux":
+        #     self.screen.hotkey("ctrl", "alt", "r")
 
         time.sleep(3)
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
         if self.operating_system == "Windows":
             self.screen.set_landscape()
-        elif self.operating_system == "Linux":
-            self.screen.hotkey("ctrl", "alt", "r")
+        # elif self.operating_system == "Linux":
+        #     self.screen.hotkey("ctrl", "alt", "r")
 
 def main() -> None:
-    with ScreenRotation():
+        
+    credentials = json.load((Path(__file__).parent / "credentials.json").open())
+    username = credentials["importer"]["username"]
+    password = credentials["importer"]["password"]
+
+    chrome_options = Options()
+    chrome_options.add_argument("--window-size=4000,4000")
+    driver = Chrome(chrome_options=chrome_options)
+
+    with ScreenRotation(), driver:
+        login(driver, username, password)
+
+        driver.set_window_size(4000, 4000)
+
         for url in URLS:
-            download(url)
+            download(driver, url, username, password)
 
 
 if __name__ == "__main__":
