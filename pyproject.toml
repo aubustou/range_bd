@@ -21,7 +21,8 @@ dependencies = [
 packages = ["range_bd"]
 
 [project.scripts]
-pdf_to_cbz = "pdf_to_cbz.main:main"
+pdf_to_cbz = "range_bd.pdf_to_cbz:main"
+pdf_to_cbz_loop = "range_bd.pdf_to_cbz:convert_loop"
 
 [project.optional-dependencies]
 dev = [

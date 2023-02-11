@@ -1,5 +1,7 @@
+import argparse
 from pathlib import Path
 import re
+import time
 
 from zipfile import ZipFile
 import subprocess
@@ -13,14 +15,15 @@ MAX_PER_RUN = 10
 DPI = 300
 
 
-def compress(bd_path: Path) -> list[Path]:
+def compress(bd_path: Path, output_folder: Path | None = None) -> list[Path]:
     bd_name = bd_path.stem
+
+    cbz_file_path = ((output_folder or bd_path.parent) / bd_name).with_suffix(".zip")
 
     images: list[Path] = []
     for img_path in bd_path.parent.glob(glob.escape(bd_name) + "_Page.pdf-*.png"):
         images.append(img_path)
 
-    cbz_file_path = bd_path.with_suffix(".zip")
     if not cbz_file_path.exists():
         print(f"To CBZ: {cbz_file_path}")
 
@@ -49,9 +52,13 @@ def convert_to_img(pdf_file: Path) -> Path:
     return pdf_file
 
 
-def remove_images(images: list[Path]) -> None:
+def remove_images(images: list[Path], to_trash: bool = True) -> None:
     try:
-        send2trash.send2trash(images)
+        if to_trash:
+            send2trash.send2trash(images)
+        else:
+            for image in images:
+                image.unlink()
     except FileNotFoundError:
         pass
 
@@ -61,6 +68,33 @@ def convert_from_list(bds: list[str]) -> None:
         bd_path = Path(bd)
         images = compress(bd_path)
         remove_images(images)
+
+
+def convert_loop() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "input_folder", type=Path, help="Folder containing BDs", default=INPUT_BD_FOLDER
+    )
+    parser.add_argument(
+        "output_folder",
+        type=Path,
+        help="Folder to output CBZs",
+        default=OUTPUT_BD_FOLDER,
+    )
+
+    args = parser.parse_args()
+    input_folder = args.input_folder
+    output_folder = args.output_folder
+
+    while True:
+        for pdf_file in input_folder.rglob("*.pdf"):
+            bd_path = convert_to_img(pdf_file)
+            images = compress(bd_path, output_folder)
+            remove_images(images)
+            pdf_file.move_to(output_folder / pdf_file.name)
+
+        print("Waiting for new files...")
+        time.sleep(30)
 
 
 def main():
