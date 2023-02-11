@@ -72,14 +72,11 @@ def convert_from_list(bds: list[str]) -> None:
 
 def convert_loop() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "input_folder", type=Path, help="Folder containing BDs", default=INPUT_BD_FOLDER
-    )
+    parser.add_argument("input_folder", type=Path, help="Folder containing BDs")
     parser.add_argument(
         "output_folder",
         type=Path,
         help="Folder to output CBZs",
-        default=OUTPUT_BD_FOLDER,
     )
 
     args = parser.parse_args()
