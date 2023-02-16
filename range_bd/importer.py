@@ -1,26 +1,22 @@
 from __future__ import annotations
-from dataclasses import dataclass
-import platform
 
 import json
+import platform
 import subprocess
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 from zipfile import ZipFile
 
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver import Chrome, Chromi
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-
-from bs4 import BeautifulSoup
 import cv2
 import numpy as np
+from bs4 import BeautifulSoup
+from selenium.webdriver import Firefox
 from selenium.webdriver.common.action_chains import ActionChains
-import rotatescreen
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.wait import WebDriverWait
 
 LOGIN_URL = "https://www.izneo.com/fr/login"
 URLS = [
@@ -33,7 +29,7 @@ TMP_FOLDER = Path(r"D:\Bédés\izneo_temp")
 TMP_FOLDER.mkdir(exist_ok=True)
 
 
-def login(driver: Chrome, username: str, password: str):
+def login(driver: Firefox, username: str, password: str):
     driver.get(LOGIN_URL)
     driver.find_element(By.ID, "form_username").send_keys(username)
     driver.find_element(By.ID, "form_password").send_keys(password)
@@ -51,7 +47,7 @@ def get_details_from_url(url: str) -> tuple[str, str, str, str, str, str]:
     return type, category, series, series_id, tome, tome_id
 
 
-def download(driver: Chrome, url: str, username: str, password: str) -> Path:
+def download(driver: Firefox, url: str, username: str, password: str) -> Path:
     type, category, series, series_id, tome, tome_id = get_details_from_url(url)
 
     if category in {"seinen", "shonen", "shojo", "manga"}:
@@ -90,7 +86,6 @@ def download(driver: Chrome, url: str, username: str, password: str) -> Path:
         # press LEFT arrow
         actions.send_keys(arrow)
         actions.perform()
-
     # move_images(path, BEDE_FOLDER)
 
     create_cbz(path, series, tome)
@@ -209,14 +204,11 @@ class ScreenOperation:
 
 
 def main() -> None:
-
     credentials = json.load((Path(__file__).parent / "credentials.json").open())
     username = credentials["importer"]["username"]
     password = credentials["importer"]["password"]
 
-    chrome_options = Options()
-    chrome_options.add_argument("--window-size=4000,4000")
-    driver = Chrome(chrome_options=chrome_options)
+    driver = Firefox()
 
     with ScreenOperation(), driver:
         login(driver, username, password)
