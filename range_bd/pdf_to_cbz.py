@@ -8,11 +8,13 @@ import subprocess
 import glob
 import send2trash
 
+
 BDS = []
 BD_FOLDER = Path(r"D:\Bédés")
 FILENAME_PATTERN = re.compile(r"(.*)_Page\.pdf-\d+\.(?:png|jpg)")
 MAX_PER_RUN = 10
 DPI = 300
+MAX_HEIGHT = 4000
 
 
 def compress(bd_path: Path, output_folder: Path | None = None) -> list[Path]:
@@ -41,6 +43,8 @@ def convert_to_img(pdf_file: Path) -> Path:
     subprocess.run(
         [
             "pdftoppm",
+            "-scale-to",
+            str(MAX_HEIGHT),
             "-r",
             str(DPI),
             "-png",
