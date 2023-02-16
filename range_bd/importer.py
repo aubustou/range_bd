@@ -145,7 +145,9 @@ class ScreenOperation:
     operating_system: str
     display: str
     mode_name: str = "4000x4000_60.00"
-    mode: str = f'"{mode_name}"  1394.75  4000 4360 4808 5616  4000 4003 4013 4140 -hsync +vsync'
+    mode: str = (
+        f"{mode_name}  1394.75  4000 4360 4808 5616  4000 4003 4013 4140 -hsync +vsync"
+    )
     previous_resolution: str
 
     def __init__(self) -> None:
@@ -159,7 +161,7 @@ class ScreenOperation:
             self.get_previous_resolution()
 
     def add_custom_resolution(self) -> None:
-        subprocess.run(["xrandr", "--newmode", self.mode], check=True)
+        subprocess.run(["xrandr", "--newmode", *self.mode.split()], check=True)
         subprocess.run(["xrandr", "--addmode", "eDP-1", self.mode_name], check=True)
 
     def remove_custom_resolution(self) -> None:
@@ -172,8 +174,7 @@ class ScreenOperation:
             if "connected primary" in line:
                 self.display, _, _, mode = line.split(maxsplit=3)
                 self.previous_resolution = mode.split("+", maxsplit=1)[0].strip()
-        else:
-            raise RuntimeError("Could not find display")
+                break
 
     def increase_resolution(self) -> None:
         subprocess.run(
