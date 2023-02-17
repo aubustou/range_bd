@@ -1,27 +1,47 @@
 from __future__ import annotations
 
 import json
+import logging
 import platform
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 from zipfile import ZipFile
 
 import cv2
 import numpy as np
 from bs4 import BeautifulSoup
-from selenium.webdriver import Firefox
+from selenium.webdriver import Firefox, FirefoxOptions
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
 
+BASE_URL = "https://www.izneo.com"
 LOGIN_URL = "https://www.izneo.com/fr/login"
+BASE_SERIES_URLS = [
+    # "https://www.izneo.com/fr/bd/action-aventure/new-york-cannibals-35939",
+    # "https://www.izneo.com/fr/bd/science-fiction/les-chroniques-de-l-univers-31649",
+    # "https://www.izneo.com/fr/bd/action-aventure/medecins-de-guerre-42201",
+    # "https://www.izneo.com/fr/bd/action-aventure/hard-rescue-38018",
+    # "https://www.izneo.com/fr/bd/historique/une-histoire-de-france-24300",
+    # "https://www.izneo.com/fr/bd/action-aventure/le-lac-des-emeraudes-26784",
+    # "https://www.izneo.com/fr/bd/thrillers-polars/irons-11382",
+    # "https://www.izneo.com/fr/bd/historique/verdun-8260",
+    # "https://www.izneo.com/fr/manga-et-simultrad/documentaire/nankin-4984",
+    # "https://www.izneo.com/fr/manga-et-simultrad/documentaire/1937-bataille-de-shanghai-4936",
+    # "https://www.izneo.com/fr/manga-et-simultrad/historique/la-bataille-de-yashan-9654",
+    # "https://www.izneo.com/fr/comics/heroic-fantasy/saga-4715",
+    # "https://www.izneo.com/fr/roman-graphique/fantastique/perceval-4930",
+    # "https://www.izneo.com/fr/roman-graphique/science-fiction/souvenirs-de-l-empire-de-l-atome-4569",
+    # "https://www.izneo.com/fr/manga-et-simultrad/historique/mei-lanfang-5017",
+]
 URLS = [
-    # "https://www.izneo.com/fr/bd/seinen/insomniaques-43556/insomniaques-t01-94528/read/1",
-    "https://www.izneo.com/fr/comics/science-fiction/universal-war-two-24959/universal-war-two-tome-3-l-exode-15477/read/1",
+    # "https://www.izneo.com/fr/bd/fantastique/scotland-48080/scotland-episode-1-101825",
+    "https://www.izneo.com/fr/bd/heroic-fantasy/les-arcanes-de-la-lune-noire-10326/greldinard-25398",
 ]
 
 BEDE_FOLDER = Path(r"D:\Bédés")
@@ -29,38 +49,90 @@ TMP_FOLDER = Path(r"D:\Bédés\izneo_temp")
 TMP_FOLDER.mkdir(exist_ok=True)
 
 
+def get_all_tomes_from_series(driver: Firefox, url: str) -> list[str]:
+    """https://www.izneo.com/fr/bd/action-aventure/le-spirou-d-emile-bravo-13671/spirou-le-journal-d-un-ingenu-31765/read/1
+
+    https://www.izneo.com/fr/abo/bd/action-aventure/le-spirou-d-emile-bravo-13671
+    """
+    driver.get(url)
+    soup = BeautifulSoup(driver.page_source, "html.parser")
+    tomes = soup.find_all("div", class_="album-data")
+
+    urls: list[str] = []
+    for tome in tomes:
+        urls.append(BASE_URL + tome.find("a")["href"].split("?")[0])
+    breakpoint()
+
+    return urls
+
+
 def login(driver: Firefox, username: str, password: str):
     driver.get(LOGIN_URL)
-    driver.find_element(By.ID, "form_username").send_keys(username)
-    driver.find_element(By.ID, "form_password").send_keys(password)
-    driver.find_element(By.ID, "btnLogin").click()
+    driver.find_element(By.NAME, "login").send_keys(username)
+    driver.find_element(By.NAME, "password").send_keys(password)
+    driver.find_element(By.CLASS_NAME, "button").click()
 
 
-def get_details_from_url(url: str) -> tuple[str, str, str, str, str, str]:
+def get_details_from_url(
+    driver: Firefox, url: str
+) -> tuple[list[str], str, str, str, Optional[str]]:
     """['https:', '', 'www.izneo.com', 'fr', 'bd', 'seinen', 'insomniaques-43556', 'insomniaques-t01-94528',
     'read', '1']"""
-    _, _, _, _, type, category, series, tome, _, _ = url.split("/")
-    series, series_id = series.rsplit("-", 1)
-    _, tome, tome_id = tome.rsplit("-", 2)
-    tome = tome.replace("t", "")
 
-    return type, category, series, series_id, tome, tome_id
+    logging.info("Fetching BD details...")
+    driver.get(url)
+    soup = BeautifulSoup(driver.page_source, "html.parser")
+    series_h1 = soup.find("h1", class_="heading heading--xl--album heading--black")
+    header = series_h1.text.strip()
+    if len(series := header.split(maxsplit=1)) == 2:
+        number = series[0].replace("T", "")
+        series = series[1]
+    else:
+        number = None
+        series = series[0]
+
+    tome_div = soup.find("div", class_="text text--md text--bold album-to-serie")
+    tome_span = tome_div.find("span")
+    tome = tome_span.text.strip()
+    tome_id = url.split("/")[-1].rsplit("-", maxsplit=1)[1]
+
+    category_div = soup.find("div", class_="for_genres items")
+    categories: list[str] = category_div.find("a").text.strip().split(" / ")
+
+    logging.info("Series: %s", series)
+    logging.info("Tome: %s", tome)
+    logging.info("Tome ID: %s", tome_id)
+    logging.info("Number: %s", number)
+    logging.info("Categories: %s", categories)
+
+    return categories, series, tome, tome_id, number
 
 
 def download(driver: Firefox, url: str, username: str, password: str) -> Path:
-    type, category, series, series_id, tome, tome_id = get_details_from_url(url)
+    (
+        categories,
+        series,
+        tome,
+        tome_id,
+        number,
+    ) = get_details_from_url(driver, url)
 
-    if category in {"seinen", "shonen", "shojo", "manga"}:
+    reader_url = url + "/read/1"
+
+    if any(x in {"seinen", "shonen", "shojo", "manga"} for x in categories):
         arrow = Keys.ARROW_LEFT
+        back_arrow = Keys.ARROW_RIGHT
     else:
         arrow = Keys.ARROW_RIGHT
+        back_arrow = Keys.ARROW_LEFT
 
-    path = Path(f"{series} - {series_id}/{tome} - {tome_id}")
+    path = Path(f"{series}/{tome} - {tome_id}")
     path.mkdir(parents=True, exist_ok=True)
 
     actions = ActionChains(driver)
 
-    driver.get(url)
+    driver.get(reader_url)
+    logging.info("Downloading: %s", reader_url)
     # driver.fullscreen_window()
 
     # Wait for div iz_OpenSliderLast to appears
@@ -69,18 +141,30 @@ def download(driver: Firefox, url: str, username: str, password: str) -> Path:
 
     # Catch value of iz_OpenSliderLast
     soup = BeautifulSoup(driver.page_source, "html.parser")
+    current_page = soup.find(id="iz_OpenSliderCurrent").text.strip()
+
+    if current_page != "1":
+        logging.info("Current page: %s. Back to page #1", current_page)
+        for _ in range(int(current_page) - 1):
+            actions.send_keys(back_arrow)
+            time.sleep(0.2)
+
     last_page = soup.find(id="iz_OpenSliderLast").text
     print(f"Last page: {last_page}")
     number_length = len(last_page)
+    number_of_pages = int(last_page) - int(current_page) + 1
+
+    # Zoom in
+    actions.send_keys("w")
+    actions.perform()
 
     # Wait for footer/header to disappear
     time.sleep(5)
 
-    for index in range(int(last_page)):
-        # for index in range(10):
+    for index in range(int(number_of_pages)):
         time.sleep(2)
         driver.save_screenshot(
-            f"{series} - {series_id}/{tome} - {tome_id}/{series} #{tome} - {str(index).zfill(number_length)}.png"
+            path / f"{series} #{number} - {str(index).zfill(number_length)}.png"
         )
 
         # press LEFT arrow
@@ -88,7 +172,7 @@ def download(driver: Firefox, url: str, username: str, password: str) -> Path:
         actions.perform()
     # move_images(path, BEDE_FOLDER)
 
-    create_cbz(path, series, tome)
+    create_cbz(path, series, number)
 
     return path
 
@@ -127,12 +211,14 @@ def crop_edges(image_path: Path, crop: Crop | None) -> Crop:
     return crop
 
 
-def create_cbz(download_path: Path, series: str, tome: str) -> None:
+def create_cbz(download_path: Path, series: str, number: Optional[str]) -> None:
     series_folder = BEDE_FOLDER / series
     series_folder.mkdir(parents=True, exist_ok=True)
-    cbz_file_path = series_folder / f"{series} #{tome}.cbz"
+    cbz_file_path = series_folder / f"{series} #{number}.cbz"
 
     crop: Crop | None = None
+
+    logging.info("Creating cbz file %s", cbz_file_path)
 
     with ZipFile(cbz_file_path, "w") as cbz_file:
         for image in download_path.glob("*.png"):
@@ -141,80 +227,31 @@ def create_cbz(download_path: Path, series: str, tome: str) -> None:
             cbz_file.write(str(image), image.name)
 
 
-class ScreenOperation:
-    operating_system: str
-    display: str
-    mode_name: str = "4000x4000_60.00"
-    mode: str = (
-        f"{mode_name}  1394.75  4000 4360 4808 5616  4000 4003 4013 4140 -hsync +vsync"
-    )
-    previous_resolution: str
-
-    def __init__(self) -> None:
-        self.operating_system = platform.system()
-        if self.operating_system == "Windows":
-            import rotatescreen
-
-            self.screen = rotatescreen.get_primary_display()
-        elif self.operating_system == "Linux":
-            self.add_custom_resolution()
-            self.get_previous_resolution()
-
-    def add_custom_resolution(self) -> None:
-        subprocess.run(["xrandr", "--newmode", *self.mode.split()], check=True)
-        subprocess.run(["xrandr", "--addmode", "eDP-1", self.mode_name], check=True)
-
-    def remove_custom_resolution(self) -> None:
-        subprocess.run(["xrandr", "--delmode", "eDP-1", self.mode_name], check=True)
-        subprocess.run(["xrandr", "--rmmode", self.mode_name], check=True)
-
-    def get_previous_resolution(self) -> None:
-        output = subprocess.run(["xrandr"], capture_output=True, check=True)
-        for line in output.stdout.decode().splitlines():
-            if "connected primary" in line:
-                self.display, _, _, mode = line.split(maxsplit=3)
-                self.previous_resolution = mode.split("+", maxsplit=1)[0].strip()
-                break
-
-    def increase_resolution(self) -> None:
-        subprocess.run(
-            ["xrandr", "--output", self.display, "--mode", self.mode_name],
-            check=True,
-        )
-
-    def set_previous_resolution(self) -> None:
-        subprocess.run(
-            ["xrandr", "--output", self.display, "--mode", self.previous_resolution],
-            check=True,
-        )
-
-    def __enter__(self) -> None:
-        if self.operating_system == "Windows":
-            self.screen.set_portrait()
-        elif self.operating_system == "Linux":
-            self.increase_resolution()
-
-        time.sleep(3)
-
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        if self.operating_system == "Windows":
-            self.screen.set_landscape()
-        elif self.operating_system == "Linux":
-            self.set_previous_resolution()
-            self.remove_custom_resolution()
-
-
 def main() -> None:
+    logging.basicConfig(level=logging.INFO)
+
     credentials = json.load((Path(__file__).parent / "credentials.json").open())
     username = credentials["importer"]["username"]
     password = credentials["importer"]["password"]
 
-    driver = Firefox()
+    options = FirefoxOptions()
 
-    with ScreenOperation(), driver:
+    options.add_argument("-headless")
+    options.add_argument("window-size=4000x4000")
+    options.add_argument("--start-maximized")
+    options.add_argument("--disable-gpu")
+
+    driver = Firefox(options=options)
+
+    with driver:
         login(driver, username, password)
 
         driver.set_window_size(4000, 4000)
+
+        urls = URLS
+
+        for base_series_url in BASE_SERIES_URLS:
+            urls.extend(get_all_tomes_from_series(driver, base_series_url))
 
         for url in URLS:
             download(driver, url, username, password)
