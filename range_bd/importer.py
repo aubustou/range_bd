@@ -23,28 +23,27 @@ from selenium.webdriver.support.wait import WebDriverWait
 BASE_URL = "https://www.izneo.com"
 LOGIN_URL = "https://www.izneo.com/fr/login"
 BASE_SERIES_URLS = [
-    # "https://www.izneo.com/fr/bd/action-aventure/new-york-cannibals-35939",
-    # "https://www.izneo.com/fr/bd/science-fiction/les-chroniques-de-l-univers-31649",
-    # "https://www.izneo.com/fr/bd/action-aventure/medecins-de-guerre-42201",
-    # "https://www.izneo.com/fr/bd/action-aventure/hard-rescue-38018",
-    # "https://www.izneo.com/fr/bd/historique/une-histoire-de-france-24300",
-    # "https://www.izneo.com/fr/bd/action-aventure/le-lac-des-emeraudes-26784",
-    # "https://www.izneo.com/fr/bd/thrillers-polars/irons-11382",
-    # "https://www.izneo.com/fr/bd/historique/verdun-8260",
-    # "https://www.izneo.com/fr/manga-et-simultrad/documentaire/nankin-4984",
-    # "https://www.izneo.com/fr/manga-et-simultrad/documentaire/1937-bataille-de-shanghai-4936",
-    # "https://www.izneo.com/fr/manga-et-simultrad/historique/la-bataille-de-yashan-9654",
-    # "https://www.izneo.com/fr/comics/heroic-fantasy/saga-4715",
-    # "https://www.izneo.com/fr/roman-graphique/fantastique/perceval-4930",
-    # "https://www.izneo.com/fr/roman-graphique/science-fiction/souvenirs-de-l-empire-de-l-atome-4569",
-    # "https://www.izneo.com/fr/manga-et-simultrad/historique/mei-lanfang-5017",
+    "https://www.izneo.com/fr/bd/action-aventure/new-york-cannibals-35939",
+    "https://www.izneo.com/fr/bd/science-fiction/les-chroniques-de-l-univers-31649",
+    "https://www.izneo.com/fr/bd/action-aventure/medecins-de-guerre-42201",
+    "https://www.izneo.com/fr/bd/action-aventure/hard-rescue-38018",
+    "https://www.izneo.com/fr/bd/historique/une-histoire-de-france-24300",
+    "https://www.izneo.com/fr/bd/action-aventure/le-lac-des-emeraudes-26784",
+    "https://www.izneo.com/fr/bd/thrillers-polars/irons-11382",
+    "https://www.izneo.com/fr/bd/historique/verdun-8260",
+    "https://www.izneo.com/fr/manga-et-simultrad/documentaire/nankin-4984",
+    "https://www.izneo.com/fr/manga-et-simultrad/documentaire/1937-bataille-de-shanghai-4936",
+    "https://www.izneo.com/fr/manga-et-simultrad/historique/la-bataille-de-yashan-9654",
+    "https://www.izneo.com/fr/comics/heroic-fantasy/saga-4715",
+    "https://www.izneo.com/fr/roman-graphique/fantastique/perceval-4930",
+    "https://www.izneo.com/fr/roman-graphique/science-fiction/souvenirs-de-l-empire-de-l-atome-4569",
+    "https://www.izneo.com/fr/manga-et-simultrad/historique/mei-lanfang-5017",
 ]
-URLS = [
-    # "https://www.izneo.com/fr/bd/fantastique/scotland-48080/scotland-episode-1-101825",
-    "https://www.izneo.com/fr/bd/heroic-fantasy/les-arcanes-de-la-lune-noire-10326/greldinard-25398",
-]
+URLS = []
 
-BEDE_FOLDER = Path(r"D:\Bédés")
+BEDE_FOLDER = Path.home() / "Bédés"
+BEDE_FOLDER.mkdir(exist_ok=True)
+
 TMP_FOLDER = Path(r"D:\Bédés\izneo_temp")
 TMP_FOLDER.mkdir(exist_ok=True)
 
@@ -61,7 +60,9 @@ def get_all_tomes_from_series(driver: Firefox, url: str) -> list[str]:
     urls: list[str] = []
     for tome in tomes:
         urls.append(BASE_URL + tome.find("a")["href"].split("?")[0])
-    breakpoint()
+
+    logging.info("Found %s tomes", len(urls))
+    logging.debug("Tomes: %s", urls)
 
     return urls
 
@@ -85,11 +86,16 @@ def get_details_from_url(
     series_h1 = soup.find("h1", class_="heading heading--xl--album heading--black")
     header = series_h1.text.strip()
     if len(series := header.split(maxsplit=1)) == 2:
-        number = series[0].replace("T", "")
-        series = series[1]
+        first, second = series
+        if first.startswith("T") and int(first[1:]):
+            number = first.replace("T", "")
+            series = second
+        else:
+            number = None
+            series = header
     else:
         number = None
-        series = series[0]
+        series = header
 
     tome_div = soup.find("div", class_="text text--md text--bold album-to-serie")
     tome_span = tome_div.find("span")
@@ -152,7 +158,7 @@ def download(driver: Firefox, url: str, username: str, password: str) -> Path:
     last_page = soup.find(id="iz_OpenSliderLast").text
     print(f"Last page: {last_page}")
     number_length = len(last_page)
-    number_of_pages = int(last_page) - int(current_page) + 1
+    number_of_pages = int(last_page)
 
     # Zoom in
     actions.send_keys("w")
@@ -161,10 +167,11 @@ def download(driver: Firefox, url: str, username: str, password: str) -> Path:
     # Wait for footer/header to disappear
     time.sleep(5)
 
-    for index in range(int(number_of_pages)):
+    for index in range(number_of_pages):
         time.sleep(2)
         driver.save_screenshot(
-            path / f"{series} #{number} - {str(index).zfill(number_length)}.png"
+            path
+            / f"{series} {('#' + number + ' - ') if number is not None else '- '}{str(index).zfill(number_length)}.png"
         )
 
         # press LEFT arrow
