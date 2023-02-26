@@ -23,36 +23,49 @@ from selenium.webdriver.support.wait import WebDriverWait
 BASE_URL = "https://www.izneo.com"
 LOGIN_URL = "https://www.izneo.com/fr/login"
 BASE_SERIES_URLS = [
-    "https://www.izneo.com/fr/bd/action-aventure/new-york-cannibals-35939",
-    "https://www.izneo.com/fr/bd/science-fiction/les-chroniques-de-l-univers-31649",
-    "https://www.izneo.com/fr/bd/action-aventure/medecins-de-guerre-42201",
-    "https://www.izneo.com/fr/bd/action-aventure/hard-rescue-38018",
-    "https://www.izneo.com/fr/bd/historique/une-histoire-de-france-24300",
-    "https://www.izneo.com/fr/bd/action-aventure/le-lac-des-emeraudes-26784",
-    "https://www.izneo.com/fr/bd/thrillers-polars/irons-11382",
-    "https://www.izneo.com/fr/bd/historique/verdun-8260",
-    "https://www.izneo.com/fr/manga-et-simultrad/documentaire/nankin-4984",
-    "https://www.izneo.com/fr/manga-et-simultrad/documentaire/1937-bataille-de-shanghai-4936",
-    "https://www.izneo.com/fr/manga-et-simultrad/historique/la-bataille-de-yashan-9654",
-    "https://www.izneo.com/fr/comics/heroic-fantasy/saga-4715",
-    "https://www.izneo.com/fr/roman-graphique/fantastique/perceval-4930",
-    "https://www.izneo.com/fr/roman-graphique/science-fiction/souvenirs-de-l-empire-de-l-atome-4569",
-    "https://www.izneo.com/fr/manga-et-simultrad/historique/mei-lanfang-5017",
+    # "https://www.izneo.com/fr/abo/manga-et-simultrad/documentaire/nankin-4984",
+    # "https://www.izneo.com/fr/abo/roman-graphique/documentaire/marathon-42479",
+    "https://www.izneo.com/fr/abo/roman-graphique/documentaire/traducteurs-afghans-une-trahison-francaise-28129",
+    "https://www.izneo.com/fr/abo/roman-graphique/tranches-de-vie/big-bang-saigon-36640",
+    "https://www.izneo.com/fr/abo/roman-graphique/documentaire/l-homme-de-la-quatrieme-dimension-27287",
+    "https://www.izneo.com/fr/abo/roman-graphique/documentaire/a-coeur-ouvert-37221",
+    "https://www.izneo.com/fr/abo/roman-graphique/documentaire/mirador-tete-de-mort-25168",
+    "https://www.izneo.com/fr/abo/roman-graphique/documentaire/mirador-tete-de-mort-25169",
+    "https://www.izneo.com/fr/abo/roman-graphique/documentaire/lehman-la-crise-et-moi-25175",
+    "https://www.izneo.com/fr/abo/roman-graphique/documentaire/dans-la-combi-de-thomas-pesquet-10338",
+    "https://www.izneo.com/fr/abo/roman-graphique/carnets-de-voyage/fikrie-22965",
+    "https://www.izneo.com/fr/abo/roman-graphique/tranches-de-vie/salto-4787",
+    "https://www.izneo.com/fr/abo/roman-graphique/documentaire/dans-l-atelier-de-fournier-4704",
+    "https://www.izneo.com/fr/abo/roman-graphique/action-aventure/mon-cousin-dans-la-mort-25167",
+    "https://www.izneo.com/fr/abo/roman-graphique/tranches-de-vie/kitsune-27286",
+    "https://www.izneo.com/fr/abo/comics/super-heros/batman-killing-joke-26803",
+    "https://www.izneo.com/fr/abo/comics/super-heros/batman-the-dark-knight-returns-26788",
+    "https://www.izneo.com/fr/abo/roman-graphique/carnets-de-voyage/les-voyages-d-ibn-battuta-32223",
+    "https://www.izneo.com/fr/abo/bd/humour/cedille-2948",
+    "https://www.izneo.com/fr/abo/bd/tranches-de-vie/soixante-printemps-en-hiver-49883",
+    "https://www.izneo.com/fr/abo/bd/fantastique/le-convoyeur-30847",
+    "https://www.izneo.com/fr/abo/bd/science-fiction/exo-8271",
+    "https://www.izneo.com/fr/abo/bd/science-fiction/ultime-frontiere-12195",
+    "https://www.izneo.com/fr/abo/bd/thrillers-polars/le-projet-bleiberg-4959",
+    "https://www.izneo.com/fr/abo/bd/thrillers-polars/sherman-4363",
+    "https://www.izneo.com/fr/abo/bd/biographie/abymes-4560",
+    "https://www.izneo.com/fr/abo/bd/documentaire/vincent-4883",
+    "https://www.izneo.com/fr/abo/bd/documentaire/l-invention-du-vide-4377",
+    "https://www.izneo.com/fr/abo/bd/historique/l-ordre-impair-59",
 ]
-URLS = []
+URLS = [
+    # "https://www.izneo.com/fr/abo/comics/super-heros/bloodshot-8346/integrale-58807",
+    # "https://www.izneo.com/fr/abo/bd/fantastique/scotland-48080/scotland-episode-1-101825",
+]
 
 BEDE_FOLDER = Path.home() / "Bédés"
 BEDE_FOLDER.mkdir(exist_ok=True)
 
-TMP_FOLDER = Path(r"D:\Bédés\izneo_temp")
+TMP_FOLDER = BEDE_FOLDER / "izneo_temp"
 TMP_FOLDER.mkdir(exist_ok=True)
 
 
 def get_all_tomes_from_series(driver: Firefox, url: str) -> list[str]:
-    """https://www.izneo.com/fr/bd/action-aventure/le-spirou-d-emile-bravo-13671/spirou-le-journal-d-un-ingenu-31765/read/1
-
-    https://www.izneo.com/fr/abo/bd/action-aventure/le-spirou-d-emile-bravo-13671
-    """
     driver.get(url)
     soup = BeautifulSoup(driver.page_source, "html.parser")
     tomes = soup.find_all("div", class_="album-data")
@@ -77,10 +90,8 @@ def login(driver: Firefox, username: str, password: str):
 def get_details_from_url(
     driver: Firefox, url: str
 ) -> tuple[list[str], str, str, str, Optional[str]]:
-    """['https:', '', 'www.izneo.com', 'fr', 'bd', 'seinen', 'insomniaques-43556', 'insomniaques-t01-94528',
-    'read', '1']"""
-
     logging.info("Fetching BD details...")
+
     driver.get(url)
     soup = BeautifulSoup(driver.page_source, "html.parser")
     series_h1 = soup.find("h1", class_="heading heading--xl--album heading--black")
@@ -114,7 +125,7 @@ def get_details_from_url(
     return categories, series, tome, tome_id, number
 
 
-def download(driver: Firefox, url: str, username: str, password: str) -> Path:
+def download(driver: Firefox, url: str) -> Path | None:
     (
         categories,
         series,
@@ -156,7 +167,12 @@ def download(driver: Firefox, url: str, username: str, password: str) -> Path:
             time.sleep(0.2)
 
     last_page = soup.find(id="iz_OpenSliderLast").text
-    print(f"Last page: {last_page}")
+    if last_page == "10":
+        # Assume not paid
+        logging.info("Not paid. Skipping")
+        return None
+
+    logging.info("Last page: %s", last_page)
     number_length = len(last_page)
     number_of_pages = int(last_page)
 
@@ -199,7 +215,7 @@ class Crop:
 
 
 def crop_edges(image_path: Path, crop: Crop | None) -> Crop:
-    print(f"Cropping {image_path}")
+    logging.info("Cropping edges on %s", image_path)
 
     image = cv2.imread(str(image_path))
 
@@ -221,7 +237,7 @@ def crop_edges(image_path: Path, crop: Crop | None) -> Crop:
 def create_cbz(download_path: Path, series: str, number: Optional[str]) -> None:
     series_folder = BEDE_FOLDER / series
     series_folder.mkdir(parents=True, exist_ok=True)
-    cbz_file_path = series_folder / f"{series} #{number}.cbz"
+    cbz_file_path = series_folder / f"{series} #{number}.zip"
 
     crop: Crop | None = None
 
@@ -261,7 +277,7 @@ def main() -> None:
             urls.extend(get_all_tomes_from_series(driver, base_series_url))
 
         for url in URLS:
-            download(driver, url, username, password)
+            download(driver, url)
 
 
 if __name__ == "__main__":

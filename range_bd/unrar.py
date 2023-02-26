@@ -8,17 +8,17 @@ from zipfile import ZipFile
 import send2trash
 
 BD_FOLDER = Path("D:/Bédés")
-RAR_TYPES = ["cbr", "rar"]
+RAR_TYPES = ["[cC][bB][rR]", "[rR][aA][rR]"]
 
 
-def create_cbz(book: Path) -> None:
+def create_cbz(book: Path) -> Path:
     with tempfile.TemporaryDirectory() as tmp:
         if (cbz_book := book.with_suffix(".zip")).exists():
             logging.info("CBZ exists. Removing %s", book)
             send2trash.send2trash(book)
-            return
+            return cbz_book
 
-        logging.info("Extracting {book.name} to {tmp}")
+        logging.info("Extracting %s to %s", book, tmp)
         try:
             subprocess.run(
                 ["unrar", "e", str(book), str(tmp)],
@@ -28,9 +28,10 @@ def create_cbz(book: Path) -> None:
         except subprocess.CalledProcessError as e:
             if b"is not RAR archive" in e.stdout:
                 logging.warning("%s is not RAR archive", book)
-                return
+                raise
             else:
                 logging.warning(e.stdout)
+                raise
         else:
             logging.info("Creating %s", cbz_book)
 
@@ -40,6 +41,9 @@ def create_cbz(book: Path) -> None:
 
             logging.info("Removing %s", book)
             send2trash.send2trash(book)
+
+            book = cbz_book
+    return book
 
 
 def main():
@@ -58,10 +62,7 @@ def main():
 
     logging.basicConfig(level=logging.INFO)
 
-    for type_ in RAR_TYPES:
-        for folder in folders:
-            for book in folder.rglob(f"*.{type_}"):
-                create_cbz(book)
+    unrar(folders)
 
 
 if __name__ == "__main__":
