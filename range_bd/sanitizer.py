@@ -9,16 +9,19 @@ from typing import Callable, TypedDict
 from zipfile import ZipFile
 
 from send2trash import send2trash
-from unrar import create_cbz
+
+from range_bd.unrar import create_cbz
 
 IGNORED_FOLDERS = ["__MACOSX", "._.DS_Store", ".DS_Store", "@eaDir"]
 
-ZIP_SUFFIX = "*.[zZ][iI][pP]"
-CBZ_SUFFIX = "*.[cC][bB][zZ]"
-CBR_SUFFIX = "*.[cC][bB][rR]"
-RAR_SUFFIX = "*.[rR][aA][rR]"
-PDF_SUFFIX = "*.[pP][dD][fF]"
-EPUB_SUFFIX = "*.[eE][pP][uU][bB]"
+ZIP_SUFFIX = ".zip"
+CBZ_SUFFIX = ".cbz"
+CBR_SUFFIX = ".cbr"
+RAR_SUFFIX = ".rar"
+PDF_SUFFIX = ".pdf"
+EPUB_SUFFIX = ".epub"
+
+
 SUFFIXES = [ZIP_SUFFIX, CBZ_SUFFIX, CBR_SUFFIX, RAR_SUFFIX, PDF_SUFFIX, EPUB_SUFFIX]
 
 FOLLOWED_FOLDERS: list[Path]
@@ -35,12 +38,15 @@ class ActionReturn(TypedDict):
 
 
 def initiate(folders: list[Path]) -> ActionReturn:
-    global FOLLOWED_FOLDERS
-
     files: list[Path] = []
     for folder in folders:
-        for suffix in SUFFIXES:
-            files.extend(folder.rglob(suffix))
+        for file_ in folder.rglob("*"):
+            if not file_.is_file():
+                continue
+
+            if file_.suffix.lower() in SUFFIXES:
+                files.append(file_)
+
     return ActionReturn(success=files, failed=[])
 
 
@@ -48,16 +54,22 @@ def rename_cbz(folders: list[Path]) -> ActionReturn:
     result = ActionReturn(success=[], failed=[])
 
     for folder in folders:
-        for cbz in folder.rglob(CBZ_SUFFIX):
-            logging.info("Renaming %s", cbz)
-            new_path = cbz.with_suffix(".cbz")
-            try:
-                cbz.rename(new_path)
-            except Exception as e:
-                logging.error("Error renaming %s: %s", cbz, e)
-                result["failed"].append(cbz)
-            else:
-                result["success"].append(new_path)
+        for file_ in folder.rglob("*"):
+            if not file_.is_file():
+                continue
+
+            if file_.suffix.lower() == CBZ_SUFFIX:
+                logging.info("Renaming %s", file_)
+                new_path = file_.with_suffix(ZIP_SUFFIX)
+                try:
+                    shutil.move(file_, file_.with_suffix(ZIP_SUFFIX))
+                except Exception as e:
+                    logging.error("Error renaming %s: %s", file_, e)
+                    result["failed"].append(file_)
+                else:
+                    result["success"].append(new_path)
+            elif file_.suffix.lower() in SUFFIXES:
+                result["success"].append(file_)
 
     return result
 
@@ -66,14 +78,22 @@ def remove_mac_folders(folders: list[Path]) -> ActionReturn:
     result = ActionReturn(success=[], failed=[])
 
     for folder in folders:
-        for path in folder.rglob(ZIP_SUFFIX):
-            try:
-                remove_mac_folder_from_zip(path)
-            except Exception as e:
-                logging.error("Error removing __MACOSX folder from %s: %s", path, e)
-                result["failed"].append(path)
-            else:
-                result["success"].append(path)
+        for file_ in folder.rglob("*"):
+            if not file_.is_file():
+                continue
+
+            if file_.suffix.lower() == ZIP_SUFFIX:
+                try:
+                    remove_mac_folder_from_zip(file_)
+                except Exception as e:
+                    logging.error(
+                        "Error removing __MACOSX folder from %s: %s", file_, e
+                    )
+                    result["failed"].append(file_)
+                else:
+                    result["success"].append(file_)
+            elif file_.suffix.lower() in SUFFIXES:
+                result["success"].append(file_)
 
     return result
 
@@ -81,16 +101,21 @@ def remove_mac_folders(folders: list[Path]) -> ActionReturn:
 def unrar(folders: list[Path]) -> ActionReturn:
     result = ActionReturn(success=[], failed=[])
 
-    for type_ in [CBR_SUFFIX, RAR_SUFFIX]:
-        for folder in folders:
-            for book in folder.rglob(type_):
+    for folder in folders:
+        for file_ in folder.rglob("*"):
+            if not file_.is_file():
+                continue
+
+            if file_.suffix.lower() in {RAR_SUFFIX, CBR_SUFFIX}:
                 try:
-                    book = create_cbz(book)
+                    zip_ = create_cbz(file_)
                 except Exception as e:
-                    logging.error("Error creating cbz from %s: %s", book, e)
-                    result["failed"].append(book)
+                    logging.error("Error creating cbz from %s: %s", file_, e)
+                    result["failed"].append(file_)
                 else:
-                    result["success"].append(book)
+                    result["success"].append(zip_)
+            elif file_.suffix.lower() in SUFFIXES:
+                result["success"].append(file_)
 
     return result
 
@@ -113,22 +138,39 @@ def remove_mac_folder_from_zip(path: Path) -> Path:
     return path
 
 
-NAME_PATTERN = re.compile(r" T(\d+) ")
+NAME_PATTERN = re.compile(r"[\s\-\._\()]+(?:T|tome|Tome)[\s\-\._]*(\d+)[\s\-\._\)]+")
+
+JUNK = [
+    r"^BD ",
+    r"  - Complet - $",
+    r"One Shot",
+    r"^BD-FR-",
+    r".FRENCH.HYBRiD.eBook-PRESSECiTRON$",
+    r".FRENCH.HYBRiD.COMiC.CBZ.eBook-TONER",
+    r" \[Digital\-[0-9]{4}\] \([0-9a-zA-Z-_\d]+\)$",
+    r"^\[BD Fr OS\] ",
+    r"^\[BD Fr\] - ",
+    r"^\[BD Fr\] ",
+    r"^\[BD\]-* ",
+    r"^BD-*\s+",
+    r"^BD.FR.-.",
+    r"^BDFR -\d*",
+    r"\d*\[One-Shot\]",
+]
+JUNK_PATTERNS = [re.compile(x) for x in JUNK]
 
 
 def clean_name(path: Path) -> Path:
-    for pattern, replacement in [
-        ("(c2c) ", ""),
-        ("One Shot", ""),
-    ]:
-        path = path.rename(path.with_name(path.name.replace(pattern, replacement)))
+    # Ensure no space at the end or beginning of the name
+    path = path.rename(path.with_name(path.name.strip()))
+
+    for pattern in JUNK_PATTERNS:
+        path = path.rename(path.with_name(pattern.sub("", path.name)))
 
     # Regex in order to change T01 to #01
     if match := NAME_PATTERN.search(path.name):
         number = match.group(1)
-        path = path.rename(
-            path.with_name(path.name.replace(f"T{number}", f"#{number}"))
-        )
+        path = path.rename(path.with_name(NAME_PATTERN.sub(f" #{number} ", path.name)))
 
     return path
 
@@ -137,17 +179,20 @@ def remove_useless_junk_from_name(folders: list[Path]) -> ActionReturn:
     result = ActionReturn(success=[], failed=[])
 
     for folder in folders:
-        for suffix in SUFFIXES:
-            for path in folder.rglob(suffix):
+        for file_ in folder.rglob("*"):
+            if not file_.is_file():
+                continue
+
+            if file_.suffix.lower() in SUFFIXES:
                 try:
-                    clean_name(path)
+                    new_path = clean_name(file_)
                 except Exception as e:
                     logging.error(
-                        "Error removing useless junk from name from %s: %s", path, e
+                        "Error removing useless junk from name from %s: %s", file_, e
                     )
-                    result["failed"].append(path)
+                    result["failed"].append(file_)
                 else:
-                    result["success"].append(path)
+                    result["success"].append(new_path)
 
     return result
 
@@ -156,14 +201,20 @@ def move_epub(folders: list[Path]) -> ActionReturn:
     result = ActionReturn(success=[], failed=[])
 
     for folder in folders:
-        for path in folder.rglob(EPUB_SUFFIX):
-            try:
-                new_path = EPUB_FOLDER / remove_parents_from_path(path, folder)
-                new_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(path, new_path)
-            except Exception as e:
-                logging.error("Error moving %s: %s", path, e)
-                result["failed"].append(path)
+        for file_ in folder.rglob("*"):
+            if not file_.is_file():
+                continue
+
+            if file_.suffix.lower() == EPUB_SUFFIX:
+                try:
+                    new_file_ = EPUB_FOLDER / remove_parents_from_path(file_, folder)
+                    new_file_.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(file_, new_file_)
+                except Exception as e:
+                    logging.error("Error moving %s: %s", file_, e)
+                    result["failed"].append(file_)
+            elif file_.suffix.lower() in SUFFIXES:
+                result["success"].append(file_)
 
     return result
 
@@ -204,14 +255,42 @@ def rename_images_in_zip_files(folders: list[Path]) -> ActionReturn:
     result = ActionReturn(success=[], failed=[])
 
     for folder in folders:
-        for path in folder.rglob(ZIP_SUFFIX):
-            try:
-                rename_images_in_zip_file(path)
-            except Exception as e:
-                logging.error("Error renaming images in %s: %s", path, e)
-                result["failed"].append(path)
-            else:
-                result["success"].append(path)
+        for file_ in folder.rglob("*"):
+            if not file_.is_file():
+                continue
+
+            if file_.suffix.lower() == ZIP_SUFFIX:
+                try:
+                    rename_images_in_zip_file(file_)
+                except Exception as e:
+                    logging.error("Error renaming images in %s: %s", file_, e)
+                    result["failed"].append(file_)
+                else:
+                    result["success"].append(file_)
+            elif file_.suffix.lower() in SUFFIXES:
+                result["success"].append(file_)
+
+    return result
+
+
+# Change from T01 to #01
+def change_tome_number_in_files(folders: list[Path]) -> ActionReturn:
+    result = ActionReturn(success=[], failed=[])
+
+    for folder in folders:
+        for file_ in folder.rglob("*"):
+            if not file_.is_file():
+                continue
+
+            if file_.suffix.lower() in SUFFIXES:
+                try:
+                    new_path = clean_name(file_)
+                    # shutil.move(file_, new_path)
+                except Exception as e:
+                    logging.error("Error changing tome number in %s: %s", file_, e)
+                    result["failed"].append(file_)
+                else:
+                    result["success"].append(new_path)
 
     return result
 
@@ -299,9 +378,9 @@ def main() -> None:
         rename_cbz,
         unrar,
         remove_mac_folders,
-        # remove_useless_junk_from_name,
         move_epub,
         rename_images_in_zip_files,
+        change_tome_number_in_files,
     ]
 
     for index, action in enumerate(pipeline):
