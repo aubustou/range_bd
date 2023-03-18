@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import logging
 import re
 import shutil
+import subprocess
+from io import BytesIO
 from pathlib import Path
-from typing import Callable, TypedDict
+from tempfile import TemporaryDirectory
+from typing import Callable, TypedDict, TypeVar
 from zipfile import ZipFile
 
+from PIL import Image
 from send2trash import send2trash
 
 from range_bd.unrar import create_cbz
@@ -30,94 +35,6 @@ MANAGED_FOLDER: Path
 SUCCESS_FOLDER: Path
 
 EPUB_FOLDER: Path
-
-
-class ActionReturn(TypedDict):
-    success: list[Path]
-    failed: list[Path]
-
-
-def initiate(folders: list[Path]) -> ActionReturn:
-    files: list[Path] = []
-    for folder in folders:
-        for file_ in folder.rglob("*"):
-            if not file_.is_file():
-                continue
-
-            if file_.suffix.lower() in SUFFIXES:
-                files.append(file_)
-
-    return ActionReturn(success=files, failed=[])
-
-
-def rename_cbz(folders: list[Path]) -> ActionReturn:
-    result = ActionReturn(success=[], failed=[])
-
-    for folder in folders:
-        for file_ in folder.rglob("*"):
-            if not file_.is_file():
-                continue
-
-            if file_.suffix.lower() == CBZ_SUFFIX:
-                logging.info("Renaming %s", file_)
-                new_path = file_.with_suffix(ZIP_SUFFIX)
-                try:
-                    shutil.move(file_, file_.with_suffix(ZIP_SUFFIX))
-                except Exception as e:
-                    logging.error("Error renaming %s: %s", file_, e)
-                    result["failed"].append(file_)
-                else:
-                    result["success"].append(new_path)
-            elif file_.suffix.lower() in SUFFIXES:
-                result["success"].append(file_)
-
-    return result
-
-
-def remove_mac_folders(folders: list[Path]) -> ActionReturn:
-    result = ActionReturn(success=[], failed=[])
-
-    for folder in folders:
-        for file_ in folder.rglob("*"):
-            if not file_.is_file():
-                continue
-
-            if file_.suffix.lower() == ZIP_SUFFIX:
-                try:
-                    remove_mac_folder_from_zip(file_)
-                except Exception as e:
-                    logging.error(
-                        "Error removing __MACOSX folder from %s: %s", file_, e
-                    )
-                    result["failed"].append(file_)
-                else:
-                    result["success"].append(file_)
-            elif file_.suffix.lower() in SUFFIXES:
-                result["success"].append(file_)
-
-    return result
-
-
-def unrar(folders: list[Path]) -> ActionReturn:
-    result = ActionReturn(success=[], failed=[])
-
-    for folder in folders:
-        for file_ in folder.rglob("*"):
-            if not file_.is_file():
-                continue
-
-            if file_.suffix.lower() in {RAR_SUFFIX, CBR_SUFFIX}:
-                try:
-                    zip_ = create_cbz(file_)
-                except Exception as e:
-                    logging.error("Error creating cbz from %s: %s", file_, e)
-                    result["failed"].append(file_)
-                else:
-                    result["success"].append(zip_)
-            elif file_.suffix.lower() in SUFFIXES:
-                result["success"].append(file_)
-
-    return result
 
 
 def remove_mac_folder_from_zip(path: Path) -> Path:
@@ -175,50 +92,6 @@ def clean_name(path: Path) -> Path:
     return path
 
 
-def remove_useless_junk_from_name(folders: list[Path]) -> ActionReturn:
-    result = ActionReturn(success=[], failed=[])
-
-    for folder in folders:
-        for file_ in folder.rglob("*"):
-            if not file_.is_file():
-                continue
-
-            if file_.suffix.lower() in SUFFIXES:
-                try:
-                    new_path = clean_name(file_)
-                except Exception as e:
-                    logging.error(
-                        "Error removing useless junk from name from %s: %s", file_, e
-                    )
-                    result["failed"].append(file_)
-                else:
-                    result["success"].append(new_path)
-
-    return result
-
-
-def move_epub(folders: list[Path]) -> ActionReturn:
-    result = ActionReturn(success=[], failed=[])
-
-    for folder in folders:
-        for file_ in folder.rglob("*"):
-            if not file_.is_file():
-                continue
-
-            if file_.suffix.lower() == EPUB_SUFFIX:
-                try:
-                    new_file_ = EPUB_FOLDER / remove_parents_from_path(file_, folder)
-                    new_file_.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.move(file_, new_file_)
-                except Exception as e:
-                    logging.error("Error moving %s: %s", file_, e)
-                    result["failed"].append(file_)
-            elif file_.suffix.lower() in SUFFIXES:
-                result["success"].append(file_)
-
-    return result
-
-
 def natural_sort(files: list[Path]) -> list[Path]:
     def convert(text: str) -> int | str:
         return int(text) if text.isdigit() else text
@@ -240,7 +113,7 @@ def rename_images_in_zip_file(path: Path) -> Path:
                 continue
 
             new_name = f"P{index:05d}{file_.suffix}"
-            logging.info("Renaming %s to %s", file_, new_name)
+            logging.debug("Renaming %s to %s", file_, new_name)
 
             with ZipFile(tmp_path, "a") as new_zip:
                 new_zip.writestr(new_name, zip_.read(str(file_)))
@@ -251,89 +124,8 @@ def rename_images_in_zip_file(path: Path) -> Path:
     return path
 
 
-def rename_images_in_zip_files(folders: list[Path]) -> ActionReturn:
-    result = ActionReturn(success=[], failed=[])
-
-    for folder in folders:
-        for file_ in folder.rglob("*"):
-            if not file_.is_file():
-                continue
-
-            if file_.suffix.lower() == ZIP_SUFFIX:
-                try:
-                    rename_images_in_zip_file(file_)
-                except Exception as e:
-                    logging.error("Error renaming images in %s: %s", file_, e)
-                    result["failed"].append(file_)
-                else:
-                    result["success"].append(file_)
-            elif file_.suffix.lower() in SUFFIXES:
-                result["success"].append(file_)
-
-    return result
-
-
-# Change from T01 to #01
-def change_tome_number_in_files(folders: list[Path]) -> ActionReturn:
-    result = ActionReturn(success=[], failed=[])
-
-    for folder in folders:
-        for file_ in folder.rglob("*"):
-            if not file_.is_file():
-                continue
-
-            if file_.suffix.lower() in SUFFIXES:
-                try:
-                    new_path = clean_name(file_)
-                    # shutil.move(file_, new_path)
-                except Exception as e:
-                    logging.error("Error changing tome number in %s: %s", file_, e)
-                    result["failed"].append(file_)
-                else:
-                    result["success"].append(new_path)
-
-    return result
-
-
 def remove_parents_from_path(path: Path, root_folder: Path) -> Path:
     return Path(*path.parts[len(root_folder.parts) :])
-
-
-def manage_action(
-    index: int,
-    action: Callable[[list[Path]], ActionReturn],
-    previous_folders: list[Path],
-) -> Path:
-    logging.info("Running %s", action.__name__)
-    logging.info("Input folders: %s", previous_folders)
-
-    global MANAGED_FOLDER, SUCCESS_FOLDER
-
-    success_folder = SUCCESS_FOLDER / f"{index:02d}_{action.__name__}"
-    success_folder.mkdir(exist_ok=True)
-
-    logging.info("Output folder: %s", success_folder)
-
-    failed_folder = MANAGED_FOLDER / f"{index:02d}_{action.__name__}_failed"
-    failed_folder.mkdir(exist_ok=True)
-
-    for folder in previous_folders:
-        result = action([folder])
-
-        if result["failed"]:
-            logging.error("Failed to run %s on %s", action.__name__, folder)
-
-        for path in result["failed"]:
-            new_path = failed_folder / remove_parents_from_path(path, folder)
-            new_path.parent.mkdir(parents=True, exist_ok=True)
-            path.rename(new_path)
-
-        for path in result["success"]:
-            new_path = success_folder / remove_parents_from_path(path, folder)
-            new_path.parent.mkdir(exist_ok=True, parents=True)
-            path.rename(new_path)
-
-    return success_folder
 
 
 def recurse_remove_empty_folder(folder: Path) -> None:
@@ -349,6 +141,213 @@ def recurse_remove_empty_folder(folder: Path) -> None:
 def remove_empty_folders(folders: list[Path]) -> None:
     for folder in folders:
         recurse_remove_empty_folder(folder)
+
+
+def rename_cbz(file_: Path) -> Path:
+    if file_.suffix.lower() != CBZ_SUFFIX:
+        return file_
+
+    logging.info("Renaming %s", file_)
+    new_path = file_.with_suffix(ZIP_SUFFIX)
+    shutil.move(file_, new_path)
+
+    return new_path
+
+
+def unrar(file_: Path) -> Path:
+    if file_.suffix.lower() not in {RAR_SUFFIX, CBR_SUFFIX}:
+        return file_
+    else:
+        return create_cbz(file_)
+
+
+def remove_mac_folders(file_: Path) -> Path:
+    if file_.suffix.lower() != ZIP_SUFFIX:
+        return file_
+    else:
+        return remove_mac_folder_from_zip(file_)
+
+
+def rename_images_in_zip_files(file_: Path) -> Path:
+    if file_.suffix.lower() != ZIP_SUFFIX:
+        return file_
+    else:
+        return rename_images_in_zip_file(file_)
+
+
+def change_tome_number_in_files(file_: Path) -> Path:
+    return clean_name(file_)
+
+
+# PDF conversion
+DPI = 300
+MAX_HEIGHT = 4000
+
+
+def convert_to_img(pdf_file: Path, output_folder: Path) -> Path:
+    logging.info("Converting %s to images in output %s", pdf_file, output_folder)
+    subprocess.run(
+        [
+            "pdftoppm",
+            "-scale-to",
+            str(MAX_HEIGHT),
+            "-r",
+            str(DPI),
+            "-png",
+            str(pdf_file),
+            str(output_folder / pdf_file.name),
+        ],
+        check=True,
+    )
+    return pdf_file
+
+
+def compress(bd_path: Path, image_folder: Path) -> Path:
+    cbz_file_path = bd_path.with_suffix(".zip")
+
+    logging.info("Creating %s", cbz_file_path)
+
+    with ZipFile(cbz_file_path, "w") as cbz_file:
+        for image_path in image_folder.glob("*.png"):
+            new_path = image_path.with_suffix(".jpg")
+
+            image = Image.open(str(image_path))
+            buffer = resize_jpg(image)
+            cbz_file.writestr(str(new_path), buffer.getvalue())
+
+    return cbz_file_path
+
+
+def convert_pdf(file_: Path) -> Path:
+    if file_.suffix.lower() != PDF_SUFFIX:
+        return file_
+
+    with TemporaryDirectory() as tmp_dir:
+        tmp_dir = Path(tmp_dir)
+        convert_to_img(file_, tmp_dir)
+        new_path = compress(file_, tmp_dir)
+    return new_path
+
+
+# JPG resize
+EXPECTED_DPI = 120
+EXPECTED_HEIGHT = 2388
+JPG_QUALITY = 90
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+
+
+def resize_jpg(img: Image.Image) -> BytesIO:
+    buffer = BytesIO()
+    width, height = img.size
+    if height > EXPECTED_HEIGHT:
+        new_height = EXPECTED_HEIGHT
+        new_width = int((new_height / height) * width)
+        img = img.resize((new_width, new_height), Image.LANCZOS)
+
+    img.save(
+        buffer,
+        format="JPEG",
+        optimize=True,
+        quality=JPG_QUALITY,
+        dpi=(EXPECTED_DPI, EXPECTED_DPI),
+    )
+    return buffer
+
+
+def resize_jpg_in_zip(path: Path) -> Path:
+    if not path.suffix.lower() == ZIP_SUFFIX:
+        return path
+
+    with ZipFile(path, "r") as zip_:
+        logging.info("Resize images from %s", path)
+
+        new_path = path.with_stem(path.stem + "_RESIZED")
+
+        with ZipFile(new_path, "w") as new_zip:
+            for name in zip_.namelist():
+                data = zip_.read(name)
+
+                if Path(name).suffix.lower() in IMAGE_EXTENSIONS:
+                    image = Image.open(BytesIO(data))
+                    buffer = resize_jpg(image)
+                    new_zip.writestr(name, buffer.getvalue())
+                else:
+                    new_zip.writestr(name, data)
+    path.unlink()
+    new_path.rename(path)
+
+    return path
+
+
+ACTIONS: list[Callable[[Path], Path]] = [
+    change_tome_number_in_files,
+    rename_cbz,
+    unrar,
+    remove_mac_folders,
+    convert_pdf,
+    rename_images_in_zip_files,
+    resize_jpg_in_zip,
+]
+
+
+def per_file_pipeline(
+    file_: Path,
+    *,
+    remote_folder: Path,
+    success_folder: Path,
+    failure_folder: Path,
+) -> None:
+    if file_.suffix.lower() not in SUFFIXES:
+        return
+
+    former_path = file_
+
+    relative_path = remove_parents_from_path(file_, remote_folder)
+
+    with TemporaryDirectory() as tmp_dir:
+        working_folder = Path(tmp_dir)
+
+        working_path = working_folder / relative_path
+        working_path.parent.mkdir(exist_ok=True, parents=True)
+        logging.info("Move file %s to new path %s", file_, working_path)
+        file_ = shutil.copy(file_, working_path)
+
+        success = False
+        new_path: Path | None = None
+        for index, action in enumerate(ACTIONS):
+            try:
+                file_ = action(file_)
+            except Exception as e:
+                logging.error("Error running %s on %s: %s", action.__name__, file_, e)
+                success = False
+                new_path = (
+                    failure_folder
+                    / f"{index:02d}_{action.__name__}"
+                    / remove_parents_from_path(file_, remote_folder)
+                )
+                break
+            else:
+                success = True
+
+        if success:
+            logging.info("Success running pipeline on %s", file_)
+            new_path = success_folder / remove_parents_from_path(file_, remote_folder)
+
+        if new_path is None:
+            raise RuntimeError("new_path should not be None")
+
+        new_path.parent.mkdir(exist_ok=True, parents=True)
+        logging.info("Move file %s back to remote %s", file_, new_path)
+        if (new_path / file_.name).exists():
+            raise RuntimeError(f"File {new_path} already exists")
+
+        try:
+            file_ = shutil.move(file_, new_path)
+        except Exception:
+            raise
+        else:
+            logging.info("Remove former file %s", former_path)
+            send2trash(str(former_path))
 
 
 def main() -> None:
@@ -372,19 +371,22 @@ def main() -> None:
     EPUB_FOLDER.mkdir(exist_ok=True)
 
     folders = [path]
+    files = list(path.rglob("*"))
 
-    pipeline: list[Callable[[list[Path]], ActionReturn]] = [
-        initiate,
-        rename_cbz,
-        unrar,
-        remove_mac_folders,
-        move_epub,
-        rename_images_in_zip_files,
-        change_tome_number_in_files,
-    ]
+    for file_ in files:
+        try:
+            if not file_.is_file():
+                continue
 
-    for index, action in enumerate(pipeline):
-        folders.append(manage_action(index, action, folders))
+            per_file_pipeline(
+                file_,
+                remote_folder=path,
+                success_folder=SUCCESS_FOLDER,
+                failure_folder=MANAGED_FOLDER,
+            )
+        except OSError as exc:
+            logging.error("Error reading %s: %s", file_, exc)
+            continue
 
     remove_empty_folders(folders + [MANAGED_FOLDER])
 

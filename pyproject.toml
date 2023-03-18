@@ -15,6 +15,7 @@ dependencies = [
         "numpy",
         "rotate-screen",
         "pyautogui",
+				"pillow",
 ]
 
 [tool.setuptools]
