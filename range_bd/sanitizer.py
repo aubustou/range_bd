@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import glob
 import logging
 import re
 import shutil
 import subprocess
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -17,6 +19,7 @@ from send2trash import send2trash
 
 from range_bd.unrar import create_cbz
 
+logger = logging.getLogger("Sanitizer")
 IGNORED_FOLDERS = ["__MACOSX", "._.DS_Store", ".DS_Store", "@eaDir"]
 
 ZIP_SUFFIX = ".zip"
@@ -37,10 +40,34 @@ SUCCESS_FOLDER: Path
 EPUB_FOLDER: Path
 
 
+class CustomFormatter(logging.Formatter):
+    grey = "\x1b[38;20m"
+    yellow = "\x1b[33;20m"
+    red = "\x1b[31;20m"
+    bold_red = "\x1b[31;1m"
+    reset = "\x1b[0m"
+
+    _format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+    FORMATS = {
+        logging.DEBUG: grey + _format + reset,
+        logging.INFO: grey + _format + reset,
+        logging.WARNING: yellow + _format + reset,
+        logging.ERROR: red + _format + reset,
+        logging.CRITICAL: bold_red + _format + reset,
+    }
+
+    def format(self, record):
+        log_fmt = self.FORMATS.get(record.levelno)
+
+        formatter = logging.Formatter(log_fmt)
+        return formatter.format(record)
+
+
 def remove_mac_folder_from_zip(path: Path) -> Path:
     with ZipFile(path, "r") as zip_:
         if any("__MACOSX" in name for name in zip_.namelist()):
-            logging.info("Removing __MACOSX folder from %s", path)
+            logger.info("Removing __MACOSX folder from %s", path)
 
             new_path = path.with_stem(path.stem + "_REMOVE_MACOSX")
 
@@ -51,7 +78,6 @@ def remove_mac_folder_from_zip(path: Path) -> Path:
                     new_zip.writestr(name, zip_.read(name))
             path.unlink()
             new_path.rename(path)
-            path = new_path
     return path
 
 
@@ -79,15 +105,15 @@ JUNK_PATTERNS = [re.compile(x) for x in JUNK]
 
 def clean_name(path: Path) -> Path:
     # Ensure no space at the end or beginning of the name
-    path = path.rename(path.with_name(path.name.strip()))
+    path = path.rename(path.with_stem(path.stem.strip()))
 
     for pattern in JUNK_PATTERNS:
-        path = path.rename(path.with_name(pattern.sub("", path.name)))
+        path = path.rename(path.with_stem(pattern.sub("", path.stem)))
 
     # Regex in order to change T01 to #01
-    if match := NAME_PATTERN.search(path.name):
+    if match := NAME_PATTERN.search(path.stem):
         number = match.group(1)
-        path = path.rename(path.with_name(NAME_PATTERN.sub(f" #{number} ", path.name)))
+        path = path.rename(path.with_stem(NAME_PATTERN.sub(f" #{number} ", path.stem)))
 
     return path
 
@@ -109,17 +135,18 @@ def rename_images_in_zip_file(path: Path) -> Path:
         files = natural_sort([Path(name) for name in zip_.namelist()])
 
         for index, file_ in enumerate(files):
-            if file_.suffix.lower() not in [".jpg", ".jpeg", ".png"]:
+            if file_.suffix.lower() not in [".jpg", ".jpeg", ".png", ".webp"]:
                 continue
 
             new_name = f"P{index:05d}{file_.suffix}"
-            logging.debug("Renaming %s to %s", file_, new_name)
+            logger.debug("Renaming %s to %s", file_, new_name)
 
             with ZipFile(tmp_path, "a") as new_zip:
                 new_zip.writestr(new_name, zip_.read(str(file_)))
 
-    send2trash(path)
-    tmp_path.rename(path)
+    if tmp_path.exists():
+        send2trash(path)
+        tmp_path.rename(path)
 
     return path
 
@@ -134,7 +161,7 @@ def recurse_remove_empty_folder(folder: Path) -> None:
             recurse_remove_empty_folder(child)
 
     if not any(x for x in folder.iterdir() if x.name not in IGNORED_FOLDERS):
-        logging.info("Removing empty folder %s", folder)
+        logger.info("Removing empty folder %s", folder)
         shutil.rmtree(folder)
 
 
@@ -147,7 +174,7 @@ def rename_cbz(file_: Path) -> Path:
     if file_.suffix.lower() != CBZ_SUFFIX:
         return file_
 
-    logging.info("Renaming %s", file_)
+    logger.info("Renaming %s", file_)
     new_path = file_.with_suffix(ZIP_SUFFIX)
     shutil.move(file_, new_path)
 
@@ -158,6 +185,7 @@ def unrar(file_: Path) -> Path:
     if file_.suffix.lower() not in {RAR_SUFFIX, CBR_SUFFIX}:
         return file_
     else:
+        logger.info("Unrar %s", file_)
         return create_cbz(file_)
 
 
@@ -185,7 +213,7 @@ MAX_HEIGHT = 4000
 
 
 def convert_to_img(pdf_file: Path, output_folder: Path) -> Path:
-    logging.info("Converting %s to images in output %s", pdf_file, output_folder)
+    logger.info("Converting %s to images in output %s", pdf_file, output_folder)
     subprocess.run(
         [
             "pdftoppm",
@@ -205,7 +233,7 @@ def convert_to_img(pdf_file: Path, output_folder: Path) -> Path:
 def compress(bd_path: Path, image_folder: Path) -> Path:
     cbz_file_path = bd_path.with_suffix(".zip")
 
-    logging.info("Creating %s", cbz_file_path)
+    logger.info("Creating %s", cbz_file_path)
 
     with ZipFile(cbz_file_path, "w") as cbz_file:
         for image_path in image_folder.glob("*.png"):
@@ -244,6 +272,10 @@ def resize_jpg(img: Image.Image) -> BytesIO:
         new_width = int((new_height / height) * width)
         img = img.resize((new_width, new_height), Image.LANCZOS)
 
+    if img.mode in {"RGBA", "P"}:
+        img = img.convert("RGB")
+        # some minor case, resulting jpg file is larger one, should meet your expectation
+
     img.save(
         buffer,
         format="JPEG",
@@ -259,7 +291,7 @@ def resize_jpg_in_zip(path: Path) -> Path:
         return path
 
     with ZipFile(path, "r") as zip_:
-        logging.info("Resize images from %s", path)
+        logger.info("Resize images from %s", path)
 
         new_path = path.with_stem(path.stem + "_RESIZED")
 
@@ -292,11 +324,13 @@ ACTIONS: list[Callable[[Path], Path]] = [
 
 def per_file_pipeline(
     file_: Path,
-    *,
     remote_folder: Path,
     success_folder: Path,
     failure_folder: Path,
 ) -> None:
+    if not file_.is_file():
+        return
+
     if file_.suffix.lower() not in SUFFIXES:
         return
 
@@ -309,7 +343,7 @@ def per_file_pipeline(
 
         working_path = working_folder / relative_path
         working_path.parent.mkdir(exist_ok=True, parents=True)
-        logging.info("Move file %s to new path %s", file_, working_path)
+        logger.info("Move file %s to new path %s", file_, working_path)
         file_ = shutil.copy(file_, working_path)
 
         success = False
@@ -318,27 +352,25 @@ def per_file_pipeline(
             try:
                 file_ = action(file_)
             except Exception as e:
-                logging.error("Error running %s on %s: %s", action.__name__, file_, e)
+                logger.error("Error running %s on %s: %s", action.__name__, file_, e)
                 success = False
                 new_path = (
-                    failure_folder
-                    / f"{index:02d}_{action.__name__}"
-                    / remove_parents_from_path(file_, remote_folder)
-                )
+                    failure_folder / f"{index:02d}_{action.__name__}" / relative_path
+                ).with_name(file_.name)
                 break
             else:
                 success = True
 
         if success:
-            logging.info("Success running pipeline on %s", file_)
-            new_path = success_folder / remove_parents_from_path(file_, remote_folder)
+            logger.info("Success running pipeline on %s", file_)
+            new_path = (success_folder / relative_path).with_name(file_.name)
 
         if new_path is None:
             raise RuntimeError("new_path should not be None")
 
         new_path.parent.mkdir(exist_ok=True, parents=True)
-        logging.info("Move file %s back to remote %s", file_, new_path)
-        if (new_path / file_.name).exists():
+        logger.info("Move file %s back to remote %s", file_, new_path)
+        if new_path.exists():
             raise RuntimeError(f"File {new_path} already exists")
 
         try:
@@ -346,20 +378,30 @@ def per_file_pipeline(
         except Exception:
             raise
         else:
-            logging.info("Remove former file %s", former_path)
+            logger.info("Remove former file %s", former_path)
             send2trash(str(former_path))
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("Sanitizer")
+    logger.setLevel(logging.INFO)
+
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.INFO)
+
+    handler.setFormatter(CustomFormatter())
+
+    logger.addHandler(handler)
 
     working_dir = Path.cwd()
 
     parser = argparse.ArgumentParser()
     parser.add_argument("path", type=Path, default=working_dir, nargs="?")
+    parser.add_argument("--debug", action="store_true", default=False)
     args = parser.parse_args()
 
     path = args.path
+    debug = args.debug
 
     global EPUB_FOLDER, MANAGED_FOLDER, SUCCESS_FOLDER
 
@@ -370,25 +412,49 @@ def main() -> None:
     EPUB_FOLDER = path.parent / "EPUB"
     EPUB_FOLDER.mkdir(exist_ok=True)
 
-    folders = [path]
-    files = list(path.rglob("*"))
+    if path.is_file():
+        files = [path]
+    else:
+        files = list(path.rglob("*"))
 
-    for file_ in files:
-        try:
-            if not file_.is_file():
+    atexit.register(remove_empty_folders, [path, MANAGED_FOLDER, SUCCESS_FOLDER])
+
+    if debug:
+        parallel = False
+        handler.setLevel(logging.DEBUG)
+        logger.setLevel(logging.DEBUG)
+    else:
+        parallel = True
+
+    if parallel:
+        with ProcessPoolExecutor() as executor:
+            futures = [
+                executor.submit(
+                    per_file_pipeline, file_, path, SUCCESS_FOLDER, MANAGED_FOLDER
+                )
+                for file_ in files
+            ]
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as exc:
+                    logger.error("Error running pipeline: %s", exc)
+                    continue
+    else:
+        for file_ in files:
+            try:
+                if not file_.is_file():
+                    continue
+
+                per_file_pipeline(
+                    file_,
+                    remote_folder=path,
+                    success_folder=SUCCESS_FOLDER,
+                    failure_folder=MANAGED_FOLDER,
+                )
+            except OSError as exc:
+                logger.error("Error reading %s: %s", file_, exc)
                 continue
-
-            per_file_pipeline(
-                file_,
-                remote_folder=path,
-                success_folder=SUCCESS_FOLDER,
-                failure_folder=MANAGED_FOLDER,
-            )
-        except OSError as exc:
-            logging.error("Error reading %s: %s", file_, exc)
-            continue
-
-    remove_empty_folders(folders + [MANAGED_FOLDER])
 
 
 if __name__ == "__main__":
