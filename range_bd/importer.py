@@ -22,41 +22,10 @@ from selenium.webdriver.support.wait import WebDriverWait
 
 BASE_URL = "https://www.izneo.com"
 LOGIN_URL = "https://www.izneo.com/fr/login"
-BASE_SERIES_URLS = [
-    # "https://www.izneo.com/fr/abo/manga-et-simultrad/documentaire/nankin-4984",
-    # "https://www.izneo.com/fr/abo/roman-graphique/documentaire/marathon-42479",
-    "https://www.izneo.com/fr/abo/roman-graphique/documentaire/traducteurs-afghans-une-trahison-francaise-28129",
-    "https://www.izneo.com/fr/abo/roman-graphique/tranches-de-vie/big-bang-saigon-36640",
-    "https://www.izneo.com/fr/abo/roman-graphique/documentaire/l-homme-de-la-quatrieme-dimension-27287",
-    "https://www.izneo.com/fr/abo/roman-graphique/documentaire/a-coeur-ouvert-37221",
-    "https://www.izneo.com/fr/abo/roman-graphique/documentaire/mirador-tete-de-mort-25168",
-    "https://www.izneo.com/fr/abo/roman-graphique/documentaire/mirador-tete-de-mort-25169",
-    "https://www.izneo.com/fr/abo/roman-graphique/documentaire/lehman-la-crise-et-moi-25175",
-    "https://www.izneo.com/fr/abo/roman-graphique/documentaire/dans-la-combi-de-thomas-pesquet-10338",
-    "https://www.izneo.com/fr/abo/roman-graphique/carnets-de-voyage/fikrie-22965",
-    "https://www.izneo.com/fr/abo/roman-graphique/tranches-de-vie/salto-4787",
-    "https://www.izneo.com/fr/abo/roman-graphique/documentaire/dans-l-atelier-de-fournier-4704",
-    "https://www.izneo.com/fr/abo/roman-graphique/action-aventure/mon-cousin-dans-la-mort-25167",
-    "https://www.izneo.com/fr/abo/roman-graphique/tranches-de-vie/kitsune-27286",
-    "https://www.izneo.com/fr/abo/comics/super-heros/batman-killing-joke-26803",
-    "https://www.izneo.com/fr/abo/comics/super-heros/batman-the-dark-knight-returns-26788",
-    "https://www.izneo.com/fr/abo/roman-graphique/carnets-de-voyage/les-voyages-d-ibn-battuta-32223",
-    "https://www.izneo.com/fr/abo/bd/humour/cedille-2948",
-    "https://www.izneo.com/fr/abo/bd/tranches-de-vie/soixante-printemps-en-hiver-49883",
-    "https://www.izneo.com/fr/abo/bd/fantastique/le-convoyeur-30847",
-    "https://www.izneo.com/fr/abo/bd/science-fiction/exo-8271",
-    "https://www.izneo.com/fr/abo/bd/science-fiction/ultime-frontiere-12195",
-    "https://www.izneo.com/fr/abo/bd/thrillers-polars/le-projet-bleiberg-4959",
-    "https://www.izneo.com/fr/abo/bd/thrillers-polars/sherman-4363",
-    "https://www.izneo.com/fr/abo/bd/biographie/abymes-4560",
-    "https://www.izneo.com/fr/abo/bd/documentaire/vincent-4883",
-    "https://www.izneo.com/fr/abo/bd/documentaire/l-invention-du-vide-4377",
-    "https://www.izneo.com/fr/abo/bd/historique/l-ordre-impair-59",
-]
-URLS = [
-    # "https://www.izneo.com/fr/abo/comics/super-heros/bloodshot-8346/integrale-58807",
-    # "https://www.izneo.com/fr/abo/bd/fantastique/scotland-48080/scotland-episode-1-101825",
-]
+
+BASE_SERIES_URLS = []
+URLS = []
+
 
 BEDE_FOLDER = Path.home() / "Bédés"
 BEDE_FOLDER.mkdir(exist_ok=True)
@@ -165,6 +134,7 @@ def download(driver: Firefox, url: str) -> Path | None:
         for _ in range(int(current_page) - 1):
             actions.send_keys(back_arrow)
             time.sleep(0.2)
+        current_page = "1"
 
     last_page = soup.find(id="iz_OpenSliderLast").text
     if last_page == "10":
